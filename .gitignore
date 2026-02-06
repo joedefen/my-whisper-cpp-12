@@ -1,0 +1,17 @@
+# Whisper.cpp source (cloned during Docker build)
+whisper.cpp/
+
+# Build artifacts
+build/
+*.o
+*.so
+
+# Editor/IDE
+*.swp
+*~
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
