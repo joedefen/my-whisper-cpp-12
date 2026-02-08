@@ -13,10 +13,14 @@ RUN git clone https://github.com/ggerganov/whisper.cpp.git . && \
 # Create the libcuda.so.1 symlink in the stub directory
 RUN ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1
 
-# Configure with CUDA support
+# Configure with CUDA support (GGML_BACKEND_DL makes CUDA a runtime
+# plugin via dlopen so the image works with or without a GPU)
 RUN cmake -B build \
     -DCMAKE_BUILD_TYPE=Release \
     -DGGML_CUDA=ON \
+    -DGGML_BACKEND_DL=ON \
+    -DGGML_BACKEND_DIR=/usr/lib/ggml-backends \
+    -DGGML_NATIVE=OFF \
     -DCMAKE_CUDA_ARCHITECTURES="86;89" \
     -DBUILD_SHARED_LIBS=ON \
     -DWHISPER_BUILD_TESTS=OFF \
@@ -41,10 +45,14 @@ WORKDIR /app
 # Copy the binary - the main executable should be in build/bin/
 COPY --from=builder /app/build/bin/whisper-cli /usr/local/bin/whisper-cli
 
-# Copy shared libraries
+# Copy shared libraries (core libs that are always needed)
 COPY --from=builder /app/build/src/libwhisper.so* /usr/lib/
 COPY --from=builder /app/build/ggml/src/libggml*.so* /usr/lib/
-COPY --from=builder /app/build/ggml/src/ggml-cuda/libggml-cuda.so* /usr/lib/
+
+# Backend plugins (CUDA, CPU) built with GGML_BACKEND_DL land in build/bin/
+RUN mkdir -p /usr/lib/ggml-backends
+COPY --from=builder /app/build/bin/libggml-cuda.so /usr/lib/ggml-backends/
+COPY --from=builder /app/build/bin/libggml-cpu.so /usr/lib/ggml-backends/
 
 # Run ldconfig to update library cache
 RUN ldconfig
