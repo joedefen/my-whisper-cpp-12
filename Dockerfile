@@ -5,9 +5,13 @@ RUN apt-get update && apt-get install -y \
     git cmake build-essential && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-# Clone whisper.cpp pinned to a known-good commit (v1.8.3+)
+# Clone whisper.cpp pinned to a known-good commit for reproducibility.
+# The pinned commit sits between v1.8.3 (2026-01-15) and v1.8.4 (2026-03-19):
+# approximately v1.8.3+. To update this pin (check for releases, get the SHA,
+# rebuild/test), see the "Updating the pinned whisper.cpp version" section in
+# README.md.
 ARG WHISPER_COMMIT=941bdabbe4561bc6de68981aea01bc5ab05781c5
-RUN git clone https://github.com/ggerganov/whisper.cpp.git . && \
+RUN git clone https://github.com/ggml-org/whisper.cpp.git . && \
     git checkout ${WHISPER_COMMIT}
 
 # Create the libcuda.so.1 symlink in the stub directory
@@ -68,3 +72,5 @@ USER whisperuser
 
 # Set entrypoint
 ENTRYPOINT ["whisper-cli"]
+
+
