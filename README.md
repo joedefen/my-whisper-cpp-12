@@ -1,6 +1,6 @@
 # Whisper.cpp CUDA Dockerized
 
-A high-performance, reproducible Docker container for [whisper.cpp](https://github.com/ggerganov/whisper.cpp) using NVIDIA CUDA 12. Optimized for modern GPUs (RTX 30-series/40-series).
+A high-performance, reproducible Docker container for [whisper.cpp](https://github.com/ggml-org/whisper.cpp) using NVIDIA CUDA 12. Optimized for modern GPUs (RTX 30-series/40-series). Currently pinned to whisper.cpp **v1.9.5**.
 
 ## Performance
 By utilizing the RTX 3060 Ti (Compute 8.6), subtitle generation and transcription are significantly accelerated:
@@ -44,7 +44,7 @@ wget -P my_audio/models \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
 ```
 
-*Tip: use `ggml-base.en.bin` if your audio is English-only, or `ggml-large-v3-turbo.bin` for the best accuracy. See [the model list](https://github.com/ggerganov/whisper.cpp#ggml-models) for all options.*
+*Tip: use `ggml-base.en.bin` if your audio is English-only, or `ggml-large-v3-turbo.bin` for the best accuracy. See [the model list](https://github.com/ggml-org/whisper.cpp/tree/master/models) for all options.*
 
 3. Run Transcription
 
@@ -89,18 +89,24 @@ docker build -t joedefen/whisper-cuda-12 .
 ## Updating the pinned whisper.cpp version
 
 The Dockerfile pins whisper.cpp to a specific commit rather than tracking
-`master`, so builds stay reproducible and don't break unexpectedly. The commit
-currently pinned (`941bdabb`) sits between v1.8.3 (2026-01-15) and
-v1.8.4 (2026-03-19) — roughly v1.8.3+.
+`master`, so builds stay reproducible and don't break unexpectedly. The image
+currently pins **v1.9.5** (released 2026-10-06), the latest stable release —
+commit `d1be6fde` (the commit the `v1.9.5` annotated tag points at). v1.9.5 is a
+maintenance release that bundles ggml v0.26.0 with CUDA/kernel fixes.
 
 To move to a newer version:
 
-
 1. **Check for new versions.** Look at the [releases page](https://github.com/ggml-org/whisper.cpp/releases)
-   (prefer a tagged release like `v1.9.4` over a raw nightly). Get the commit SHA
-   for the tag — either from the release page, or:
+   (prefer a stable tagged release like `v1.9.5` over a raw nightly). Get the
+   commit SHA for the tag. Note that `whisper.cpp` tags are annotated, so use
+   the **peeled** commit (the `^{}` line), not the tag object SHA:
    ```
-   git ls-remote https://github.com/ggml-org/whisper.cpp.git refs/tags/v1.9.4
+   git ls-remote https://github.com/ggml-org/whisper.cpp.git 'refs/tags/v1.9.5*'
+   ```
+   The output looks like:
+   ```
+   d2a764c6...  refs/tags/v1.9.5      <- tag object (do not pin this)
+   d1be6fde...  refs/tags/v1.9.5^{}   <- commit to pin this
    ```
 
 2. **Update the pin.** In the `Dockerfile`, change the `WHISPER_COMMIT` build arg
@@ -110,22 +116,38 @@ To move to a newer version:
    ```
 
 3. **Rebuild and test.** Build the image, then run the smoke tests, which cover
-   both the CUDA and CPU-fallback paths:
+   both the CUDA and CPU-fallback paths. `test.sh` also verifies that the CUDA
+   plugin was loaded and that inference actually ran on `CUDA0`, and that the CPU
+   plugin is used when `--gpus` is omitted:
    ```
    docker build -t joedefen/whisper-cuda-12 .
    ./test.sh
    ```
+   To test a candidate build without retagging `latest`, override `IMAGE`:
+   ```
+   docker build -t joedefen/whisper-cuda-12:candidate .
+   IMAGE=joedefen/whisper-cuda-12:candidate ./test.sh
+   ```
 
-*Note: the build uses `GGML_BACKEND_DL=ON` (CUDA is a runtime plugin) and copies
-specific artifacts (`build/bin/whisper-cli`, `libwhisper.so*`, `libggml*.so*`, and
-`libggml-cuda.so` / `libggml-cpu.so`). If a future upstream commit renames or
-relocates these files, the `COPY` steps in the Dockerfile will need updating.*
+*Note: the build uses `GGML_BACKEND_DL=ON` (CUDA is a runtime plugin). Since
+v1.9.x, `CMAKE_LIBRARY_OUTPUT_DIRECTORY` points at `build/bin`, so **all** shared
+libraries are emitted there (previously `build/src` and `build/ggml/src`). The
+Dockerfile copies `build/bin/whisper-cli`, `libwhisper.so*`, `libggml.so*`,
+`libggml-base.so*`, plus the backend plugins `libggml-cuda.so` / `libggml-cpu.so`
+into `/usr/lib/ggml-backends/`. The build also produces `libparakeet.so`, but
+`whisper-cli` does not link it, so it is intentionally not copied. If a future
+upstream commit renames or relocates these files, the `COPY` steps in the
+Dockerfile will need updating.*
 
 ## Configuration Details
 
+* whisper.cpp: v1.9.5 (pinned commit `d1be6fde11ac6e0407606b4e42fe72d34add8037`)
+* GGML: v0.26.0 (bundled with whisper.cpp v1.9.5)
 * Base Image: nvidia/cuda:12.4.1-devel-ubuntu22.04
 * CUDA Arch: 86;89 (RTX 3060 Ti, 3070, 3080, 3090, 40-series)
 * Backend: GGML with CUDA support enabled (-DGGML_CUDA=ON)
+* Examples: the whole examples tree is compiled, but only `whisper-cli` is copied
+  into the final image; tests are disabled
 
 ## License
 This project inherits the MIT License from whisper.cpp.
