@@ -69,6 +69,24 @@ docker run -v $(pwd)/my_audio:/data joedefen/whisper-cuda-12:latest \
   --output-srt
 ```
 
+## Verify a published image
+
+`test.sh` smoke-tests both paths (CUDA backend loaded and used; CPU backend used
+when `--gpus` is omitted). Pin the release tag and set `PULL=1` to test the image
+exactly as published — this pulls first, so a stale local copy cannot be mistaken
+for the release:
+```
+IMAGE=joedefen/whisper-cuda-12:v1.9.5 PULL=1 ./test.sh
+```
+Without `PULL=1` the script tests whatever image is already in the local cache.
+
+The script prints the image's index digest. That is the digest `docker pull`
+reports, and it differs from the per-platform digest Docker Hub lists for the
+tag (the index also wraps a BuildKit attestation manifest). To see both:
+```
+docker buildx imagetools inspect joedefen/whisper-cuda-12:v1.9.5
+```
+
 ## Build it Locally
 
 If you want to build the image yourself (e.g., to target a specific CUDA architecture):

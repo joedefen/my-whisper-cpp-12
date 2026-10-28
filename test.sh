@@ -1,12 +1,27 @@
 #!/bin/bash
 set -euo pipefail
 
-# Allow testing a candidate build without retagging :latest, e.g.
+# Smoke-test an image on both code paths: CUDA (--gpus all) and the CPU
+# fallback (no --gpus).
+#
+# By default the image is whatever is already in the local Docker cache. To
+# test the image as it is published on Docker Hub, pin the release tag and set
+# PULL=1, which pulls first so a stale local copy cannot be mistaken for the
+# release:
+#   IMAGE=joedefen/whisper-cuda-12:v1.9.5 PULL=1 ./test.sh
+#
+# Testing a candidate build without retagging :latest:
 #   IMAGE=joedefen/whisper-cuda-12:v1.9.5-test ./test.sh
 IMAGE="${IMAGE:-joedefen/whisper-cuda-12}"
+PULL="${PULL:-0}"
 MODEL_DIR="$(pwd)/test-models"
 MODEL="$MODEL_DIR/ggml-tiny.bin"
 AUDIO=/tmp/test-silence.wav
+
+if [ "$PULL" = "1" ]; then
+    echo "==> Pulling $IMAGE"
+    docker pull "$IMAGE"
+fi
 
 # Download tiny model (~75MB) if not present
 mkdir -p "$MODEL_DIR"
@@ -51,6 +66,19 @@ run_whisper() {
     return "$rc"
 }
 
+# Show which image is under test. The digest below is the top-level index digest
+# that `docker pull` reports; Docker Hub's tag list shows the per-platform
+# manifest digest instead, so the two differ when BuildKit attestations are
+# attached. Use `docker buildx imagetools inspect "$IMAGE"` for both.
+echo "==> Image:  $IMAGE"
+digests="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE")"
+if [ -n "$digests" ]; then
+    echo "==> Index digest:"
+    printf '    %s\n' $digests
+else
+    echo "==> Digest: (none: local build, never pushed)"
+fi
+
 echo ""
 echo "========== TEST 1: CUDA (--gpus all) =========="
 if ! run_whisper --gpus all \
@@ -86,4 +114,4 @@ if grep -q "using CUDA0 backend" <<<"$LAST_OUT"; then
 fi
 
 echo ""
-echo "All smoke tests passed."
+echo "All smoke tests passed for $IMAGE."
