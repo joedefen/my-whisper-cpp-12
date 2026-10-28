@@ -1,5 +1,16 @@
+# whisper.cpp version pin. WHISPER_VERSION is the upstream release tag and the
+# single source of truth for this project's tags: build.sh reads these values
+# and applies them to the Docker image and to the git tag. Build them into the
+# image as OCI labels as well. See "Releasing and tagging" in README.md.
+ARG WHISPER_VERSION=v1.9.5
+ARG WHISPER_COMMIT=d1be6fde11ac6e0407606b4e42fe72d34add8037
+# Revision of this repository (passed by build.sh), for provenance labels.
+ARG SOURCE_REVISION=unknown
+
 # Stage 1: Builder
 FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS builder
+
+ARG WHISPER_COMMIT
 
 RUN apt-get update && apt-get install -y \
     git cmake build-essential && rm -rf /var/lib/apt/lists/*
@@ -7,11 +18,10 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 # Clone whisper.cpp pinned to a known-good commit for reproducibility.
 # Pinned to the v1.9.5 release commit (2026-10-06), the latest stable release.
-# The SHA below is the commit the v1.9.5 annotated tag points at (i.e. the
+# The SHA above is the commit the v1.9.5 annotated tag points at (i.e. the
 # peeled `refs/tags/v1.9.5^{}` commit, not the tag object).
 # To update this pin (check for releases, get the SHA, rebuild/test), see the
 # "Updating the pinned whisper.cpp version" section in README.md.
-ARG WHISPER_COMMIT=d1be6fde11ac6e0407606b4e42fe72d34add8037
 RUN git clone https://github.com/ggml-org/whisper.cpp.git . && \
     git checkout ${WHISPER_COMMIT}
 
@@ -38,6 +48,21 @@ RUN cmake --build build --config Release -j $(nproc)
 
 # Stage 2: Runtime
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+ARG WHISPER_VERSION
+ARG WHISPER_COMMIT
+ARG SOURCE_REVISION
+
+LABEL org.opencontainers.image.title="whisper-cuda-12" \
+      org.opencontainers.image.description="whisper.cpp transcription CLI with CUDA 12 support" \
+      org.opencontainers.image.version="${WHISPER_VERSION}" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      org.opencontainers.image.source="https://github.com/joedefen/my-whisper-cpp-12" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.base.name="nvidia/cuda:12.4.1-runtime-ubuntu22.04" \
+      com.joedefen.whisper.version="${WHISPER_VERSION}" \
+      com.joedefen.whisper.commit="${WHISPER_COMMIT}"
+
 RUN apt-get update && apt-get install -y \
     libgomp1 \
     ffmpeg \

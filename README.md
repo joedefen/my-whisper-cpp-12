@@ -1,6 +1,6 @@
 # Whisper.cpp CUDA Dockerized
 
-A high-performance, reproducible Docker container for [whisper.cpp](https://github.com/ggml-org/whisper.cpp) using NVIDIA CUDA 12. Optimized for modern GPUs (RTX 30-series/40-series). Currently pinned to whisper.cpp **v1.9.5**.
+A high-performance, reproducible Docker container for [whisper.cpp](https://github.com/ggml-org/whisper.cpp) using NVIDIA CUDA 12. Optimized for modern GPUs (RTX 30-series/40-series). Currently pinned to whisper.cpp **v1.9.5**, and each release is tagged with the upstream whisper.cpp version (`v1.9.5`).
 
 ## Performance
 By utilizing the RTX 3060 Ti (Compute 8.6), subtitle generation and transcription are significantly accelerated:
@@ -81,10 +81,59 @@ cd my-whisper-cpp-12
 
 2. Build:
 ```
-docker build -t joedefen/whisper-cuda-12 .
+./build.sh
+```
+
+`build.sh` reads `WHISPER_VERSION` and `WHISPER_COMMIT` from the Dockerfile,
+builds the image, pushes the Docker tags (below), and creates/pushes the matching
+git tag. To build locally without publishing anything:
+```
+PUSH=0 GIT_TAG=0 ./build.sh
+```
+To build and create the git tag locally, but review before pushing the tag:
+```
+PUSH=0 GIT_PUSH=0 ./build.sh
 ```
 
 *Note: The Dockerfile is currently optimized for Ampere (RTX 30-series) and Ada (RTX 40-series).*
+
+## Releasing and tagging
+
+The whisper.cpp release in the Dockerfile is the single source of truth. These
+two lines at the top of the Dockerfile drive every tag:
+```dockerfile
+ARG WHISPER_VERSION=v1.9.5
+ARG WHISPER_COMMIT=d1be6fde11ac6e0407606b4e42fe72d34add8037
+```
+
+Running `./build.sh` produces:
+
+| Kind | Name | Notes |
+| --- | --- | --- |
+| Git tag | `v1.9.5` | Annotated tag at the built commit; matches the upstream release |
+| Docker | `joedefen/whisper-cuda-12:v1.9.5` | Release tag |
+| Docker | `joedefen/whisper-cuda-12:v1.9.5-d1be6fd` | Version plus upstream commit (traceability) |
+| Docker | `joedefen/whisper-cuda-12:latest` | Most recent release |
+
+The image also carries OCI labels: `org.opencontainers.image.version` (whisper.cpp
+version), `org.opencontainers.image.revision` (this repo's commit),
+`com.joedefen.whisper.version`, and `com.joedefen.whisper.commit`. Inspect them with:
+```
+docker inspect --format '{{json .Config.Labels}}' joedefen/whisper-cuda-12:latest
+```
+
+Safety behavior:
+
+* The git tag is created only after the image builds and pushes successfully.
+* `build.sh` refuses to tag a dirty working tree (override with `ALLOW_DIRTY=1`).
+* If the tag already exists at a different commit, the build aborts. Bump
+  `WHISPER_VERSION`, choose another `TAG_NAME` (e.g. `TAG_NAME=v1.9.5-2`), or set
+  `FORCE_TAG=1` to move the tag.
+* Re-running on a commit that is already tagged still rebuilds/pushes the image
+  but skips re-creating the git tag.
+
+Useful overrides: `PUSH=0`, `GIT_TAG=0`, `GIT_PUSH=0`, `FORCE_TAG=1`,
+`ALLOW_DIRTY=1`, `TAG_NAME=...`, `IMAGE=...`.
 
 ## Updating the pinned whisper.cpp version
 
@@ -109,24 +158,34 @@ To move to a newer version:
    d1be6fde...  refs/tags/v1.9.5^{}   <- commit to pin this
    ```
 
-2. **Update the pin.** In the `Dockerfile`, change the `WHISPER_COMMIT` build arg
-   (and the comment next to it) to the new SHA:
+2. **Update the pin.** In the `Dockerfile`, update **both** `ARG` lines (and the
+   comment next to them):
    ```dockerfile
+   ARG WHISPER_VERSION=<new-version-tag>   # e.g. v1.9.6
    ARG WHISPER_COMMIT=<new-commit-sha>
    ```
+   `WHISPER_VERSION` must match the upstream release tag, because it is used
+   verbatim for the Docker tags and the git tag.
 
-3. **Rebuild and test.** Build the image, then run the smoke tests, which cover
-   both the CUDA and CPU-fallback paths. `test.sh` also verifies that the CUDA
-   plugin was loaded and that inference actually ran on `CUDA0`, and that the CPU
-   plugin is used when `--gpus` is omitted:
+3. **Build locally and test.** Build without publishing, then run the smoke
+   tests, which cover both the CUDA and CPU-fallback paths. `test.sh` also
+   verifies that the CUDA plugin was loaded and that inference actually ran on
+   `CUDA0`, and that the CPU plugin is used when `--gpus` is omitted:
    ```
-   docker build -t joedefen/whisper-cuda-12 .
+   PUSH=0 GIT_TAG=0 ./build.sh
    ./test.sh
    ```
-   To test a candidate build without retagging `latest`, override `IMAGE`:
+   To test a candidate build under a non-release image name, override `IMAGE`:
    ```
-   docker build -t joedefen/whisper-cuda-12:candidate .
+   PUSH=0 GIT_TAG=0 IMAGE=joedefen/whisper-cuda-12:candidate ./build.sh
    IMAGE=joedefen/whisper-cuda-12:candidate ./test.sh
+   ```
+
+4. **Publish.** Once the tests pass, run the normal build. Docker's layer cache
+   makes the second build fast; it pushes the versioned/latest images and creates
+   and pushes the git tag:
+   ```
+   ./build.sh
    ```
 
 *Note: the build uses `GGML_BACKEND_DL=ON` (CUDA is a runtime plugin). Since
@@ -142,6 +201,8 @@ Dockerfile will need updating.*
 ## Configuration Details
 
 * whisper.cpp: v1.9.5 (pinned commit `d1be6fde11ac6e0407606b4e42fe72d34add8037`)
+* Git tag: `v1.9.5` (matches the upstream whisper.cpp release; created by `build.sh`)
+* Docker tags: `:v1.9.5`, `:v1.9.5-d1be6fd`, `:latest`
 * GGML: v0.26.0 (bundled with whisper.cpp v1.9.5)
 * Base Image: nvidia/cuda:12.4.1-devel-ubuntu22.04
 * CUDA Arch: 86;89 (RTX 3060 Ti, 3070, 3080, 3090, 40-series)
